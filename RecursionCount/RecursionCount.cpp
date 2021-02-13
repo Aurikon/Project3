@@ -1,26 +1,50 @@
 #include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/raw_ostream.h"
-
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 using namespace llvm;
 
 namespace {
-struct RecursionCount : public FunctionPass 
+struct RecursionCount : public ModulePass 
 {
   static char ID;
-  RecursionCount() : FunctionPass(ID) {}
+  RecursionCount() : ModulePass(ID) {}
   static unsigned int count;
-  bool runOnFunction(Function &F) override 
+  bool runOnModule(Module &M) override 
   {
-  	if(!F.doesNotRecurse())
-  	{
-    	errs().write_escaped(F.getName()) << " is recursive \n";
-    	++count;
-    }
-    return false;
+		for(auto &function : M)
+		{
+  			bool isFound = false;
+  			for(auto &basicBlock : function)
+  			{
+  				if(isFound)
+  				{
+  					isFound = false;
+  					break;
+  				}
+  				for(auto &instruction : basicBlock)
+  				{
+  					if(CallInst* callInst = dyn_cast<CallInst>(&instruction))
+  					{
+  						if(Function* calledFunction = callInst->getCalledFunction())
+  						{
+  							if(calledFunction->getName() == function.getName())
+  							{
+  								errs() << function.getName() << " is recursive\n";
+  								++count;
+  								isFound = true;
+  								break;
+  							}
+  						}
+  					}
+  				}
+  			}
+  		}
+  		return false;
   }
   ~RecursionCount()
   {
@@ -31,10 +55,5 @@ struct RecursionCount : public FunctionPass
 
 unsigned int RecursionCount::count = 0;
 char RecursionCount::ID = 0;
-static RegisterPass<RecursionCount> X("RecusrionCount", "RecursionCount Pass",
+static RegisterPass<RecursionCount> X("RecursionCount", "RecursionCount Pass",
                              false, false);
-
-static RegisterStandardPasses Y(
-    PassManagerBuilder::EP_EarlyAsPossible,
-    [](const PassManagerBuilder &Builder,
-       legacy::PassManagerBase &PM) { PM.add(new RecursionCount()); });
